@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "author": "Projet ECG",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": -100, "left": 150, "attrs": {} },
+    { "type": "wokwi-pushbutton", "id": "btn1", "top": 130, "left": 190, "attrs": { "color": "red" } },
+    { "type": "wokwi-pushbutton", "id": "btn2", "top": 190, "left": 190, "attrs": { "color": "blue" } },
+    { "type": "wokwi-led", "id": "led1", "top": 40, "left": 220, "attrs": { "color": "red" } },
+    { "type": "wokwi-mpu6050", "id": "imu1", "top": -110, "left": -220, "attrs": {} },
+    { "type": "wokwi-ds18b20", "id": "temp1", "top": 210, "left": 300, "attrs": { "temperature": "36.5" } },
+    { "type": "wokwi-resistor", "id": "pullup1", "top": 275, "left": 255, "attrs": { "value": "4.7k" } }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "pot1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "pot1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "pot1:SIG", "esp:D34", "green", [ "v0" ] ],
+    [ "btn1:1.l", "esp:D13", "orange", [ "h0" ] ],
+    [ "btn1:2.l", "esp:GND.1", "black", [ "h0" ] ],
+    [ "btn2:1.l", "esp:D12", "blue", [ "h0" ] ],
+    [ "btn2:2.l", "esp:GND.1", "black", [ "h0" ] ],
+    [ "led1:A", "esp:D2", "red", [ "v0" ] ],
+    [ "led1:C", "esp:GND.1", "black", [ "v0" ] ],
+    [ "imu1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "imu1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "imu1:SDA", "esp:D21", "green", [ "v0" ] ],
+    [ "imu1:SCL", "esp:D22", "blue", [ "v0" ] ],
+    [ "temp1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "temp1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "temp1:DQ", "esp:D4", "green", [ "v0" ] ],
+    [ "pullup1:1", "temp1:DQ", "green", [ "v0" ] ],
+    [ "pullup1:2", "esp:3V3", "red", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

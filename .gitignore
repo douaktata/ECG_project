@@ -1,0 +1,9 @@
+.pio
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+.vscode/settings.json
+Projet_ECG/ecg_projet/cle-service.json
+Projet_ECG/MQTT CREDENTIALS.txt
+Projet_ECG/ecg_projet/mesures_bpm.csv
