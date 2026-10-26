@@ -1,0 +1,9 @@
+paho-mqtt>=2.0
+firebase-admin
+numpy
+scipy
+pandas
+neurokit2
+scikit-learn   # same version as the one that saved ia/rf_model.joblib (printed by Notebook 4)
+joblib
+matplotlib     # only for affichage.py and analyse.py --plot

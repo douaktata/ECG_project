@@ -68,11 +68,21 @@
   .alert-list li { display:flex; align-items:center; gap:10px; padding:11px 0; border-top:1px solid var(--line); color:var(--text); font-size:12px; }
   .alert-dot { flex:0 0 7px; width:7px; height:7px; border-radius:50%; }
   .disclaimer { padding:16px 18px; color:var(--muted); font-size:11px; line-height:1.55; }
+  .report-panel { margin-top:18px; }
+  .report-form { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px 14px; padding:0 18px; }
+  .report-form label { display:flex; flex-direction:column; gap:4px; color:var(--muted); font:10px var(--mono); text-transform:uppercase; }
+  .report-form input, .report-form select { border:1px solid var(--line); border-radius:0; background:var(--bg); color:var(--text); font:12px var(--sans); padding:6px 8px; }
+  .report-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px 18px 16px; }
+  .report-actions button { border:1px solid var(--mint); border-radius:0; background:transparent; color:var(--mint); font:500 12px var(--mono); padding:7px 12px; cursor:pointer; }
+  .report-actions button:hover, .report-actions button.on { background:#22382f; }
+  .report-status { color:var(--muted); font:11px var(--mono); }
+  .ecg-legend { color:var(--coral); }
   .mono { font-family:var(--mono); }
   @media (max-width:920px) {
     .content-grid, .lower-grid { grid-template-columns:minmax(0, 1fr); }
     .metric-grid { grid-template-columns:repeat(4, minmax(0, 1fr)); }
     .motion-panel { margin-top:12px; }
+    .report-form { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width:620px) {
     .topbar { min-height:58px; padding:0 18px; }
@@ -104,9 +114,9 @@
 </header>
 <main class="page">
   <section class="page-heading"><div><div class="eyebrow">Surveillance physiologique / temps réel</div><h1>Vue patient</h1><p class="subtitle">ECG, pouls optique, oxygénation, température et mouvement</p></div><div class="patient-tag"><label for="patientId">PATIENT /</label><form id="patientForm" class="patient-picker"><input id="patientId" name="patientId" value="patient1" maxlength="64" autocomplete="off" aria-label="Identifiant patient"><button type="submit">Afficher</button></form></div></section>
-  <section class="rhythm-strip" aria-live="polite"><div class="rhythm-copy"><span class="state-dot" id="stateDot"></span><strong id="etat">En attente des données</strong><span class="rhythm-detail">Variabilité RR&nbsp; <span class="mono" id="irr">--</span></span></div><div class="rhythm-mode">MODE ECG&nbsp; <span id="mode">--</span></div></section>
+  <section class="rhythm-strip" aria-live="polite"><div class="rhythm-copy"><span class="state-dot" id="stateDot"></span><strong id="etat">En attente des données</strong><span class="rhythm-detail">Variabilité RR&nbsp; <span class="mono" id="irr">--</span></span><span class="rhythm-detail">IA&nbsp; <span class="mono" id="ia">--</span></span></div><div class="rhythm-mode">MODE ECG&nbsp; <span id="mode">--</span></div></section>
   <section class="content-grid">
-    <section class="panel" aria-label="Courbe ECG en direct"><div class="panel-head"><h2 class="panel-title">Signal ECG</h2><span class="panel-kicker">DERNIÈRES 6 SECONDES</span></div><div class="ecg-wrap"><canvas id="ecg" width="1000" height="300" aria-label="Courbe du signal ECG"></canvas><div class="chart-foot"><span>Amplitude relative</span><span id="ecgRate">100 ÉCH/S</span></div></div></section>
+    <section class="panel" aria-label="Courbe ECG en direct"><div class="panel-head"><h2 class="panel-title">Signal ECG</h2><span class="panel-kicker">DERNIÈRES 6 SECONDES</span></div><div class="ecg-wrap"><canvas id="ecg" width="1000" height="300" aria-label="Courbe du signal ECG"></canvas><div class="chart-foot"><span>Amplitude relative · <span class="ecg-legend">rouge = battement anormal (IA)</span></span><span id="ecgRate">100 ÉCH/S</span></div></div></section>
     <section aria-label="Mesures physiologiques">
       <div class="metric-grid">
         <article class="metric"><div class="metric-top"><span>Fréquence ECG</span><span class="metric-mark"></span></div><div class="metric-value"><span id="bpm">--</span><span class="metric-unit">BPM</span></div><div class="metric-note">Analyse du signal ECG</div></article>
@@ -121,11 +131,25 @@
     <section class="panel"><div class="panel-head"><h2 class="panel-title">Alertes récentes</h2><span class="panel-kicker">10 DERNIÈRES</span></div><ul class="alert-list" id="alertes"><li style="color:var(--muted)">Aucune alerte enregistrée</li></ul></section>
     <aside class="panel"><div class="panel-head"><h2 class="panel-title">Information</h2><span class="panel-kicker">PROTOCOLE</span></div><div class="disclaimer">Prototype pédagogique. Les mesures et alertes sont expérimentales et ne remplacent pas un dispositif médical ni un avis professionnel.</div></aside>
   </section>
+  <section class="panel report-panel" aria-label="Rapport de synthèse">
+    <div class="panel-head"><h2 class="panel-title">Rapport de synthèse</h2><span class="panel-kicker">IA · TYPE HOLTER</span></div>
+    <form class="report-form" id="infosForm" onsubmit="return false">
+      <label>Nom du patient<input name="nom" maxlength="80" autocomplete="off"></label>
+      <label>Date de naissance<input name="naissance" maxlength="40" placeholder="15 Aug 1972" autocomplete="off"></label>
+      <label>Sexe<select name="sexe"><option value=""></option><option value="Female">Femme</option><option value="Male">Homme</option><option value="Other">Autre</option></select></label>
+      <label>Médecin<input name="medecin" maxlength="80" autocomplete="off"></label>
+    </form>
+    <div class="report-actions">
+      <button type="button" id="genererRapport">Générer le rapport</button>
+      <button type="button" id="rapportDirect">Rapport en direct : non</button>
+      <span class="report-status" id="rapportStatut">Aucun rapport pour l'instant</span>
+    </div>
+  </section>
 </main>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, query, limitToLast }
+import { getDatabase, ref, onValue, query, limitToLast, get, set }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 const firebaseConfig = {
@@ -204,7 +228,9 @@ function reinitialiserAffichage() {
   document.getElementById("stateDot").style.background = couleur;
   document.querySelector(".rhythm-strip").style.borderLeftColor = couleur;
   document.getElementById("irr").textContent = "--";
+  document.getElementById("ia").textContent = "--";
   document.getElementById("mode").textContent = "--";
+  reinitialiserRapport();
   document.getElementById("pulseNote").textContent = "En attente du signal";
   afficherMouvement(null);
   const alertes = document.getElementById("alertes");
@@ -215,7 +241,10 @@ function reinitialiserAffichage() {
   alertes.appendChild(attente);
   definirConnexion(false, "Connexion en attente");
   pts = new Array(N).fill(null);
+  idx = new Array(N).fill(null);
   file.length = 0;
+  fileIdx.length = 0;
+  anormaux.clear();
   pos = 0;
   frac = 0;
   seqVu = 0;
@@ -246,6 +275,8 @@ function selectionnerPatient(patientId) {
     document.getElementById("stateDot").style.background = couleur;
     document.querySelector(".rhythm-strip").style.borderLeftColor = couleur;
     document.getElementById("irr").textContent = nombreOuTiret(d.irregularite, 3);
+    document.getElementById("ia").textContent = d.ia
+      ? `${nombreOuTiret(d.ia.anormaux_1min)} battement(s) anormal(aux) / min` : "--";
     document.getElementById("mode").textContent = d.mode_reel ?? "--";
     elements.pulse.textContent = nombreOuTiret(d.pulse);
     elements.spo2.textContent = nombreOuTiret(d.spo2);
@@ -289,12 +320,123 @@ function selectionnerPatient(patientId) {
       N = FS * SECONDES;
       GAP = Math.round(FS * 0.4);
       pts = new Array(N).fill(null);
+      idx = new Array(N).fill(null);
       pos = 0;
     }
     file.push(...d.samples);
-    while (file.length > FS * 4) file.shift();
+    // n° de chaque échantillon depuis le début du flux (pour placer les battements anormaux de l'IA)
+    const debut = Number.isFinite(d.debut) ? d.debut : null;
+    fileIdx.push(...d.samples.map((_, i) => (debut === null ? null : debut + i)));
+    while (file.length > FS * 4) { file.shift(); fileIdx.shift(); }
+    (Array.isArray(d.anormaux) ? d.anormaux : []).forEach((a) => anormaux.add(a));
+    const plusVieux = [...anormaux].sort((x, y) => x - y).slice(0, Math.max(0, anormaux.size - 40));
+    plusVieux.forEach((a) => anormaux.delete(a));
   }, afficherErreurFirebase));
+
+  desabonnements.push(onValue(ref(db, `${base}/rapport`), (snap) => {
+    const d = snap.val();
+    if (!d || !d.html) return;
+    dernierRapport = d;
+    const heure = new Date(d.t).toLocaleTimeString("fr-FR");
+    const duree = Math.round((d.duree_s || 0) / 60);
+    statutRapport(`Dernier rapport : ${heure} · ${d.battements} battements · ${duree} min de signal`);
+    if (fenetreDirect && !fenetreDirect.closed) ecrireRapport(fenetreDirect, d.html, true);
+    else if (fenetreDirect) arreterDirect();
+    if (fenetreAttente && d.t > rapportDemandeApres) {
+      ecrireRapport(fenetreAttente, d.html, false);
+      fenetreAttente = null;
+      clearTimeout(minuterieAttente);
+    }
+  }, afficherErreurFirebase));
+
+  get(ref(db, `${base}/infos`)).then((snap) => {
+    const infos = snap.val() || {};
+    for (const champ of ["nom", "naissance", "sexe", "medecin"]) infosForm.elements[champ].value = infos[champ] || "";
+  }).catch(() => {});
 }
+
+// ---------- Rapport de synthèse (généré par pont.py avec l'IA) ----------
+const infosForm = document.getElementById("infosForm");
+const boutonDirect = document.getElementById("rapportDirect");
+let dernierRapport = null, fenetreDirect = null, fenetreAttente = null;
+let rapportDemandeApres = 0, minuterieAttente = null;
+
+function statutRapport(texte) {
+  document.getElementById("rapportStatut").textContent = texte;
+}
+
+function reinitialiserRapport() {
+  dernierRapport = null;
+  statutRapport("Aucun rapport pour l'instant");
+  for (const champ of ["nom", "naissance", "sexe", "medecin"]) infosForm.elements[champ].value = "";
+}
+
+function ecrireRapport(fenetre, html, direct) {
+  if (!fenetre || fenetre.closed) return;
+  const defilement = fenetre.scrollY || 0;              // garde la position de lecture
+  if (direct) html = html.replace('<div class="toolbar">', '<div class="toolbar"><span class="live">● en direct</span>');
+  fenetre.document.open();
+  fenetre.document.write(html);
+  fenetre.document.close();
+  fenetre.scrollTo(0, defilement);
+}
+
+function ouvrirFenetre(message) {
+  const fenetre = window.open("", "_blank");   // ouverte tout de suite : sinon le navigateur la bloque
+  if (fenetre) fenetre.document.write(`<p style="font-family:sans-serif;padding:24px">${message}</p>`);
+  return fenetre;
+}
+
+function infosPatient() {
+  const infos = {};
+  for (const champ of ["nom", "naissance", "sexe", "medecin"]) infos[champ] = infosForm.elements[champ].value.trim();
+  return infos;
+}
+
+document.getElementById("genererRapport").addEventListener("click", async () => {
+  const base = `patients/${patientInput.value.trim()}`;
+  fenetreAttente = ouvrirFenetre("Génération du rapport…");
+  if (!fenetreAttente) { statutRapport("Fenêtre bloquée par le navigateur : autorisez les fenêtres pop-up"); return; }
+  rapportDemandeApres = dernierRapport ? dernierRapport.t : 0;
+  clearTimeout(minuterieAttente);
+  try {
+    await set(ref(db, `${base}/infos`), infosPatient());
+    await set(ref(db, `${base}/rapport_demande`), Date.now());
+    statutRapport("Rapport demandé…");
+    // pont.py répond en 1 à 2 s ; sans réponse, on affiche le dernier rapport disponible
+    minuterieAttente = setTimeout(afficherDernierRapport, 10000);
+  } catch (error) {
+    console.error("Demande de rapport refusée :", error);
+    afficherDernierRapport();
+  }
+});
+
+function afficherDernierRapport() {
+  if (!fenetreAttente) return;
+  if (dernierRapport) {
+    ecrireRapport(fenetreAttente, dernierRapport.html, false);
+    statutRapport(`Rapport automatique affiché (pont.py le met à jour toutes les 15 s)`);
+  } else {
+    fenetreAttente.document.body.innerHTML = "<p style='font-family:sans-serif;padding:24px'>Aucun rapport disponible : " +
+      "vérifiez que pont.py est lancé et que le patient envoie un signal.</p>";
+  }
+  fenetreAttente = null;
+}
+
+function arreterDirect() {
+  fenetreDirect = null;
+  boutonDirect.textContent = "Rapport en direct : non";
+  boutonDirect.classList.remove("on");
+}
+
+boutonDirect.addEventListener("click", () => {
+  if (fenetreDirect && !fenetreDirect.closed) { fenetreDirect.close(); arreterDirect(); return; }
+  fenetreDirect = ouvrirFenetre("En attente du premier rapport…");
+  if (!fenetreDirect) { statutRapport("Fenêtre bloquée par le navigateur : autorisez les fenêtres pop-up"); return; }
+  boutonDirect.textContent = "Rapport en direct : oui";
+  boutonDirect.classList.add("on");
+  if (dernierRapport) ecrireRapport(fenetreDirect, dernierRapport.html, true);
+});
 
 document.getElementById("patientForm").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -314,8 +456,9 @@ const canvas = document.getElementById("ecg");
 const ctx = canvas.getContext("2d");
 const SECONDES = 6;
 let FS = 100, N = FS * SECONDES, GAP = Math.round(FS * 0.4);
-let pts = new Array(N).fill(null), pos = 0, frac = 0;
-const file = [];
+let pts = new Array(N).fill(null), idx = new Array(N).fill(null), pos = 0, frac = 0;
+const file = [], fileIdx = [];
+const anormaux = new Set();       // positions des battements anormaux (IA), en n° d'échantillon
 let seqVu = 0, lecture = false, tPrec = performance.now();
 
 const patientInitial = new URLSearchParams(location.search).get("patient") || "patient1";
@@ -336,6 +479,19 @@ function dessiner() {
     if (debut) { ctx.moveTo(x, y); debut = false; } else ctx.lineTo(x, y);
   }
   ctx.stroke();
+
+  // Battements anormaux selon l'IA : en rouge, de 0,25 s avant à 0,40 s après le pic R
+  if (!anormaux.size) return;
+  const zones = [...anormaux].map((a) => [a - 0.25 * FS, a + 0.40 * FS]);
+  const dansZone = (i) => idx[i] !== null && zones.some(([de, a]) => idx[i] >= de && idx[i] <= a);
+  ctx.strokeStyle = COULEURS.urgence; ctx.lineWidth = 2.6; ctx.beginPath();
+  debut = true;
+  for (let i = 0; i < N; i++) {
+    if (pts[i] === null || !dansZone(i)) { debut = true; continue; }
+    const x = i * W / N, y = H * 0.78 - pts[i] * H * 0.6;
+    if (debut) { ctx.moveTo(x, y); debut = false; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
 }
 
 function boucle(t) {
@@ -348,8 +504,8 @@ function boucle(t) {
     const vitesse = FS * (1 + Math.max(-0.3, Math.min(0.5, 0.5 * erreur)));
     frac += vitesse * dt;
     let k = Math.min(Math.floor(frac), file.length); frac -= Math.floor(frac);
-    while (k-- > 0) { pts[pos] = file.shift(); pos = (pos + 1) % N; }
-    for (let i = 0; i < GAP; i++) pts[(pos + i) % N] = null;
+    while (k-- > 0) { pts[pos] = file.shift(); idx[pos] = fileIdx.shift() ?? null; pos = (pos + 1) % N; }
+    for (let i = 0; i < GAP; i++) { pts[(pos + i) % N] = null; idx[(pos + i) % N] = null; }
   }
   dessiner();
   requestAnimationFrame(boucle);

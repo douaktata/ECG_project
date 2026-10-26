@@ -1,6 +1,8 @@
 import collections
+import datetime as dt
 import json
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -9,6 +11,12 @@ import paho.mqtt.client as mqtt
 import firebase_admin
 from firebase_admin import credentials, db
 from scipy.signal import butter, filtfilt, find_peaks
+
+# Modèle IA (Random Forest entraîné sur MIT-BIH) et rapport de synthèse : dossier ia/
+DOSSIER_IA = Path(__file__).resolve().parent / "ia"
+sys.path.insert(0, str(DOSSIER_IA))
+from ecg_monitor import ECGMonitor, load_model      # noqa: E402
+from ecg_report import compute_report, render_html  # noqa: E402
 
 PREFIXE = "ecg-doua"          # topics : ecg-doua/<id_patient>/raw, /bpm, /mode, ...
 DATABASE_URL = "https://ecg-project-a0448-default-rtdb.europe-west1.firebasedatabase.app"
@@ -20,14 +28,26 @@ SEUIL_IRR_BAS = 0.10        # retour au rythme régulier
 CONFIRMATIONS = 3           # mesures consécutives avant de changer d'état
 DELAI_HORS_LIGNE = 10       # secondes sans signal => patient considéré hors ligne
 SUJETS_MQTT = {"raw", "bpm", "mode", "pulse", "spo2", "temperature", "motion"}
+SECTEUR_HZ = 50             # fréquence du secteur (filtre coupe-bande de l'IA)
+PERIODE_RAPPORT = 15        # secondes entre deux rapports de synthèse automatiques
+# alertes de l'IA -> (type affiché, niveau) dans /patients/<pid>/alertes
+ALERTES_IA = {"abnormal beats": ("Battements anormaux (IA)", "attention"),
+              "heart rate": ("Fréquence cardiaque (IA)", "urgence"),
+              "no beat": ("Aucun battement (IA) : vérifier les électrodes", "attention")}
+
+MODELE_IA = load_model(DOSSIER_IA / "rf_model.joblib")
+print(f"Modèle IA chargé (seuil d'alarme {MODELE_IA['threshold']:.2f})")
+
 
 # ---------- Firebase ----------
-FICHIER_CLE = Path(__file__).resolve().parent / "cle-service.json"
-if not FICHIER_CLE.is_file():
-    raise FileNotFoundError(f"Clé de service Firebase introuvable : {FICHIER_CLE}")
-cred = credentials.Certificate(str(FICHIER_CLE))
-firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
-print(f"Firebase Admin initialisé pour {DATABASE_URL}")
+def initialiser_firebase():
+    fichier_cle = Path(__file__).resolve().parent / "cle-service.json"
+    if not fichier_cle.is_file():
+        raise FileNotFoundError(f"Clé de service Firebase introuvable : {fichier_cle}")
+    cred = credentials.Certificate(str(fichier_cle))
+    firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
+    print(f"Firebase Admin initialisé pour {DATABASE_URL}")
+
 
 b, a = butter(2, [0.5 / (FS / 2), 40 / (FS / 2)], btype="band")
 
@@ -51,10 +71,35 @@ class Patient:
         self.ecg_firebase_ok = False
         self.live_firebase_ok = False
         self.t_analyse = self.t_histo = time.time()
+        # IA : un moniteur par patient (filtre, pics R, Random Forest, alertes)
+        self.ia = ECGMonitor(MODELE_IA, fs=FS, powerline_hz=SECTEUR_HZ)
+        self.ia_attente = []                 # échantillons pas encore analysés par l'IA
+        self.debut = None                    # heure du premier échantillon (pour le rapport)
+        self.envoyes = 0                     # échantillons déjà envoyés dans ecg_live
+        self.t_rapport = 0.0
+        self.t_demande = 0.0
+        self.derniere_demande = None         # dernière valeur lue dans rapport_demande
 
     # Références Firebase : /patients/<pid>/<categorie>
     def ref(self, categorie):
         return db.reference(f"patients/{self.pid}/{categorie}")
+
+    def demande_rapport(self):
+        """Le bouton « Générer le rapport » du tableau de bord écrit l'heure dans rapport_demande.
+
+        Lu toutes les 2 s depuis la boucle principale (et non avec listen(), qui ouvre un 2e fil
+        de connexion HTTPS : deux fils SSL en même temps font planter Python 3.12.0 sous Windows)."""
+        if time.time() - self.t_demande < 2:
+            return False
+        self.t_demande = time.time()
+        try:
+            valeur = self.ref("rapport_demande").get()
+        except Exception:
+            return False
+        valeur = valeur if valeur is not None else 0
+        nouvelle = self.derniere_demande is not None and valeur != self.derniere_demande
+        self.derniere_demande = valeur       # la première lecture sert seulement de référence
+        return nouvelle
 
 
 patients = {}
@@ -102,6 +147,9 @@ def on_message(client, userdata, msg):
             p.signal.extend(vals)
             with p.en_attente_lock:
                 p.en_attente.extend(vals)
+                p.ia_attente.extend(vals)
+            if p.debut is None:
+                p.debut = dt.datetime.now()
             p.dernier_raw = time.time()
         elif sujet == "bpm":
             p.recu["bpm_esp"] = float(texte)
@@ -150,10 +198,64 @@ def etat_brut(p, bpm, irr):
     return "Normal", "normal"
 
 
+def analyser_ia(p, now_ms):
+    """Donne la dernière seconde de signal au modèle IA et publie ses alertes."""
+    with p.en_attente_lock:
+        chunk, p.ia_attente = p.ia_attente, []
+    if not chunk:
+        return
+    for alerte in p.ia.push(np.array(chunk)):
+        type_alerte, niveau = ALERTES_IA.get(alerte["type"], (alerte["type"], "attention"))
+        bpm = round(p.ia.beats[-1]["heart_rate"]) if p.ia.beats else None
+        print(f"[{p.pid}] ALERTE IA : {alerte['message']}")
+        try:
+            p.ref("alertes").push({
+                "type": type_alerte, "niveau": niveau, "bpm": bpm, "source": "ia",
+                "message": alerte["message"], "mode_reel": p.recu["mode"], "timestamp": now_ms})
+        except Exception as e:
+            print(f"[{p.pid}] Erreur Firebase (alerte IA) :", e)
+
+
+def resume_ia(p):
+    """Valeurs de l'IA pour /live : fréquence, battements anormaux sur la dernière minute."""
+    battements = list(p.ia.beats)
+    recents = [b for b in battements if b["time"] > p.ia.now() - 60]
+    return {"bpm": round(battements[-1]["heart_rate"]) if battements else None,
+            "battements": len(battements),
+            "anormaux_1min": int(sum(b["abnormal"] for b in recents)),
+            "anormaux_total": int(sum(b["abnormal"] for b in battements))}
+
+
+def generer_rapport(p, now_ms):
+    """Rapport de synthèse (type Holter) de tout le signal reçu -> /patients/<pid>/rapport."""
+    try:
+        infos = p.ref("infos").get() or {}
+    except Exception:
+        infos = {}
+    rapport = compute_report(list(p.ia.beats), p.ia.now(), start_time=p.debut, alerts=list(p.ia.alerts))
+    patient = {"name": infos.get("nom") or p.pid, "patient_id": p.pid, "dob": infos.get("naissance"),
+               "gender": infos.get("sexe"), "physician": infos.get("medecin"),
+               "device_id": f"ESP32 ({p.pid})", "lead": "1 lead"}
+    try:
+        p.ref("rapport").set({"html": render_html(rapport, patient), "t": now_ms,
+                              "duree_s": round(p.ia.now()), "battements": rapport["n_beats"]})
+    except Exception as e:
+        print(f"[{p.pid}] Erreur Firebase (rapport) :", e)
+
+
 def traiter(p, now_ms):
     en_ligne = time.time() - p.dernier_raw < DELAI_HORS_LIGNE
+    demande = p.demande_rapport()
     if not en_ligne:
+        if demande:                  # le rapport reste disponible après la fin du signal
+            generer_rapport(p, now_ms)
         return  # pas de nouveau signal : on n'écrit rien, le dashboard verra le timestamp ancien
+
+    # 0) IA : classification de chaque battement + alertes, chaque seconde
+    analyser_ia(p, now_ms)
+    if demande or time.time() - p.t_rapport >= PERIODE_RAPPORT:
+        p.t_rapport = time.time()
+        generer_rapport(p, now_ms)
 
     # 1) analyse toutes les 2 secondes, avec confirmation de l'état
     if time.time() - p.t_analyse >= 2:
@@ -183,8 +285,14 @@ def traiter(p, now_ms):
         chunk = [round(v, 3) for v in p.en_attente]
     if chunk:
         p.seq += 1
+        # positions (n° d'échantillon depuis le début) des battements jugés anormaux par l'IA
+        # dans les 10 dernières secondes : le tableau de bord les colore en rouge sur la courbe
+        recents = p.ia.received - 10 * FS
+        anormaux = [int(b["position"]) for b in p.ia.beats[-30:] if b["abnormal"] and b["position"] > recents]
         try:
-            p.ref("ecg_live").set({"seq": p.seq, "fs": FS, "samples": chunk, "t": now_ms})
+            p.ref("ecg_live").set({"seq": p.seq, "fs": FS, "samples": chunk, "t": now_ms,
+                                   "debut": p.envoyes, "anormaux": anormaux})
+            p.envoyes += len(chunk)
             with p.en_attente_lock:
                 del p.en_attente[:len(chunk)]
             if not p.ecg_firebase_ok:
@@ -202,7 +310,8 @@ def traiter(p, now_ms):
                 "etat": p.etat, "niveau": p.niveau,
                 "mode_reel": p.recu["mode"], "timestamp": now_ms,
                 "pulse": p.recu["pulse"], "spo2": p.recu["spo2"],
-                "temperature": p.recu["temperature"], "motion": p.recu["motion"]})
+                "temperature": p.recu["temperature"], "motion": p.recu["motion"],
+                "ia": resume_ia(p)})
             if not p.live_firebase_ok:
                 print(f"[{p.pid}] Écriture Firebase live OK : patients/{p.pid}/live")
                 p.live_firebase_ok = True
@@ -223,18 +332,24 @@ def traiter(p, now_ms):
           f"| mode réel : {p.recu['mode']} | paquet {p.seq}")
 
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-client.on_connect = on_connect
-client.on_disconnect = on_disconnect
-client.on_message = on_message
-client.connect("broker.hivemq.com", 1883, 60)
-client.loop_start()
+def main():
+    initialiser_firebase()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+    client.on_message = on_message
+    client.connect("broker.hivemq.com", 1883, 60)
+    client.loop_start()
 
-print("Pont multi-patients démarré. Ctrl+C pour arrêter.")
-while True:
-    time.sleep(1)
-    now_ms = int(time.time() * 1000)
-    with verrou:
-        liste = list(patients.values())
-    for p in liste:
-        traiter(p, now_ms)
+    print("Pont multi-patients démarré. Ctrl+C pour arrêter.")
+    while True:
+        time.sleep(1)
+        now_ms = int(time.time() * 1000)
+        with verrou:
+            liste = list(patients.values())
+        for p in liste:
+            traiter(p, now_ms)
+
+
+if __name__ == "__main__":
+    main()
